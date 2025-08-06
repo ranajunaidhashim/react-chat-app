@@ -1,7 +1,6 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useMemo } from "react";
 import "./ChatPage.css";
-import { getDatabase, push, ref, set, onChildAdded , onValue} from "firebase/database";
-// import avatar from "../../img/Rana-Junaid-Hashim.jpg";
+import { io } from "socket.io-client";
 import { general, about, chaterList } from "./Data";
 import {
   MdOutlineKeyboardArrowRight,
@@ -10,41 +9,60 @@ import {
   MdSend,
 } from "react-icons/md";
 
-const ChatPage = () => {
+const ChatPage = ({ user, onLogout }) => {
   const [msg, setMsg] = useState("");
-  const [name, setName] = useState("bhai");
   const [chats, setChats] = useState([]);
-  const db = getDatabase();
-  const chatListRef = ref(db, "chats");
-
-  useEffect(() => {
-    // by  child added method  of firebase:
-    // onChildAdded(chatListRef, (data) => {
-    //   setChats((chats) => [...chats, data.val()]);
-    //   console.log(data.val);
-    // });
-    // another method of firebase
-    onValue(chatListRef, (snapshot) => {
-      const data = snapshot.val();
-      if (data) {
-        const chatsData = Object.values(data);
-        setChats(chatsData);
-      }
-      console.log(data.val);
-
-    });
-    
-  }, []);
-  const sendChat = () => {
-    const chatRef = push(chatListRef);
-    set(chatRef, {
-      name,
-      message: msg,
-    });
-  };
-
   const [searchQuery, setSearchQuery] = useState("");
   const [filteredChaterList, setFilteredChaterList] = useState(chaterList);
+
+  const token = localStorage.getItem("token");
+  const socket = useMemo(() => {
+    if (!token) return null;
+    return io(process.env.REACT_APP_SERVER_URL || "http://localhost:4000", {
+      auth: { token }
+    });
+  }, [token]);
+
+  useEffect(() => {
+    if (!socket) return;                        // ← guard against null
+    // history listener
+    socket.on("chat-history", history => {
+      const flat = history.map(h => ({
+        author: typeof h.author === "string"
+          ? h.author
+          : h.author.username,
+        text: h.text,
+        timestamp: h.timestamp
+      }));
+      setChats(flat);
+    });
+    // new-message listener
+    socket.on("receive-message", payload => {
+      setChats(prev => [...prev, payload]);
+    });
+    // handle connection errors
+    socket.on("connect_error", err => {
+      console.error("Socket error:", err.message);
+    });
+    return () => {
+      socket.off("chat-history");
+      socket.off("receive-message");
+      socket.off("connect_error");
+      socket.disconnect();
+    }
+
+  }, [socket]);
+
+  const sendChat = () => {
+    if (!msg) return;
+    // const payload = { name, message: msg }
+    // socket.emit('send-message', payload);
+    // setChats((prev) => ([...prev, payload]))
+    socket.emit("send-message", { message: msg });
+    setMsg('');
+  };
+
+
 
   useEffect(() => {
     function filterChaterList() {
@@ -60,16 +78,6 @@ const ChatPage = () => {
     filterChaterList();
   }, [searchQuery]);
 
-  // function filterChaterList() {
-  //   if (searchQuery === "") {
-  //     setFilteredChaterList(chaterList);
-  //   } else {
-  //     const filteredList = chaterList.filter((c) =>
-  //       c.cname.toLowerCase().includes(searchQuery.toLowerCase())
-  //     );
-  //     setFilteredChaterList(filteredList);
-  //   }
-  // }
 
   return (
     <div className="chat-page">
@@ -110,8 +118,8 @@ const ChatPage = () => {
           </ul>
         </div>
 
-        <button className="btn">
-          <a href="/">LOGOUT</a>
+        <button className="btn" onClick={() => onLogout && onLogout()}>
+          LOGOUT
         </button>
       </aside>
       <section>
@@ -149,14 +157,13 @@ const ChatPage = () => {
           </header>
           <div>
             <div>
+              {/* {!socket? <div>Connecting…</div>:""} */}
               {chats.map((c, i) => (
                 <div key={i} className="chat-area">
-                  <div className={`container ${c.name === name ? "me" : ""}`}>
-                    <p className="chatbox"> {c.message}</p>
+                  <div className={`container ${c.author === user ? "me" : ""}`}>
+                    <p className="chatbox"> {c.author === user ? "" : <strong>{c.author}:</strong>} {c.text}</p>
+                    <small>{new Date(c.timestamp).toLocaleTimeString()}</small>
                   </div>
-                  {/* <div className="container me">
-                <p className="chatbox">my message is.....</p>
-              </div> */}
                 </div>
               ))}
             </div>
@@ -165,7 +172,8 @@ const ChatPage = () => {
               <input
                 type="text"
                 placeholder="Write A Message"
-                onInput={(e) => setMsg(e.target.value)}
+                value={msg}
+                onChange={(e) => setMsg(e.target.value)}
               />
               <div className="circle-img" onClick={(e) => sendChat()}>
                 <MdSend />
