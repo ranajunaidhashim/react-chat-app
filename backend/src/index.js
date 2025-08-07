@@ -7,6 +7,7 @@ import rootRoute from './routes/root.route.js';
 import { config } from "dotenv";
 import { connectDb } from "./config/db.js";
 import authRoute from './routes/auth.route.js';
+import usersRoute from './routes/users.route.js';
 
 
 config();
@@ -23,6 +24,7 @@ app.use(express.json());
 app.use(express.static("public"));
 app.use("/", rootRoute);
 app.use("/auth", authRoute);
+app.use("/users", usersRoute);
 
 const server = http.createServer(app);
 const io = new Server(server, {

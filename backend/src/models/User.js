@@ -6,7 +6,7 @@ const userSchema = new mongoose.Schema({
     password: { type: String, required: true }
 })
 
-// helper to set password----- "this" doesnt work with arrow function
+// helper to set password----- "this" keyword doesnt work with arrow function
 userSchema.methods.setPassword = async function(pass) {
     this.password = await bcrypt.hash(pass, 10)
 }
